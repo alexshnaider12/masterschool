@@ -1,0 +1,41 @@
+-- Step 1: Identify users with more than 10 flights
+WITH UserFlightCounts AS (
+    SELECT
+        s.user_id,                     -- User ID from sessions table
+        COUNT(*) AS flight_count       -- Count of flights per user
+    FROM flights f
+    JOIN sessions s ON f.trip_id = s.trip_id  -- Join flights with sessions using trip_id
+    GROUP BY s.user_id                -- Group by user ID
+    HAVING COUNT(*) > 10              -- Filter for users with more than 10 flights
+),
+
+-- Step 2: Calculate the time difference between consecutive flights for each user
+UserFlightsWithLag AS (
+    SELECT
+        s.user_id,                                                 -- User ID from sessions table
+        f.departure_time,                                          -- Departure time of the current flight
+        LEAD(f.departure_time) OVER (                             -- Get the next flight's departure time
+            PARTITION BY s.user_id                                -- Partition by user ID
+            ORDER BY f.departure_time                             -- Order flights chronologically
+        ) AS next_departure_time                                  -- Alias for the next flight's departure time
+    FROM flights f
+    JOIN sessions s ON f.trip_id = s.trip_id                      -- Join flights with sessions using trip_id
+    JOIN UserFlightCounts ufc ON s.user_id = ufc.user_id          -- Restrict to users with >10 flights
+),
+
+-- Step 3: Calculate the largest window (time gap in days) between consecutive flights
+UserBiggestWindows AS (
+    SELECT
+        user_id,                                                   -- User ID
+        MAX(EXTRACT(DAY FROM (next_departure_time - departure_time))) AS biggest_window
+                                                                    -- Calculate the time gap in days and find the maximum
+    FROM UserFlightsWithLag                                        -- Use the lagged flight data
+    WHERE next_departure_time IS NOT NULL                          -- Ignore rows without a next flight
+    GROUP BY user_id                                               -- Group by user ID
+)
+
+-- Step 4: Output the results
+SELECT
+    user_id,                                                       -- User ID
+    biggest_window                                                 -- Largest gap between flights in days
+FROM UserBiggestWindows;
